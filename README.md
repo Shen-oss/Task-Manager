@@ -48,6 +48,7 @@ uvicorn app.main:app --reload
 
 # 5. Open API docs
 http://127.0.0.1:8000/docs
+```
 
 ### API Endpoints
 
@@ -65,8 +66,8 @@ http://127.0.0.1:8000/docs
     
 *   `DELETE /tasks/{id}` → Delete task
 
+
 ## 中文
---
 
 ### 簡介
 
@@ -111,7 +112,7 @@ Task Manager API 是一個基於 **FastAPI**、**SQLAlchemy** 與 **JWT 認證**
     
 
 ### 快速開始
-
+```bash
 # 1. 複製專案
 git clone https://github.com/<your-username>/task-manager.git
 cd task-manager
@@ -128,6 +129,7 @@ uvicorn app.main:app --reload
 
 # 5. 開啟 API 文件
 http://127.0.0.1:8000/docs
+```
 
 ### API 端點
 
