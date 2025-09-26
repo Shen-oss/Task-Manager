@@ -1,16 +1,22 @@
-from fastapi import APIRouter, Depends, HTTPException, Header
+from fastapi import APIRouter, Depends, HTTPException
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 from passlib.context import CryptContext
 from jose import jwt, JWTError, ExpiredSignatureError
 from datetime import datetime, timedelta
 from app import models, schemas
 from app.db import SessionLocal
+import os
 
 router = APIRouter()
 
-SECRET_KEY = "super-secret-key"
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 30
+# ── 安全方案：Swagger /docs 右上角 Authorize 會自動帶 Bearer
+security = HTTPBearer()
+
+# ── 設定（有預設；正式請用環境變數覆蓋）
+SECRET_KEY = os.getenv("SECRET_KEY", "dev-secret-change-me")
+ALGORITHM = os.getenv("ALGORITHM", "HS256")
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "60"))
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
@@ -21,48 +27,33 @@ def get_db():
     finally:
         db.close()
 
-def hash_password(password: str):
+def hash_password(password: str) -> str:
     return pwd_context.hash(password)
 
-def verify_password(plain, hashed):
+def verify_password(plain: str, hashed: str) -> bool:
     return pwd_context.verify(plain, hashed)
 
-def create_token(data: dict):
+def create_token(data: dict) -> str:
+    to_encode = data.copy()
     expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    data.update({"exp": expire})
-    return jwt.encode(data, SECRET_KEY, algorithm=ALGORITHM)
+    to_encode.update({"exp": expire})
+    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
 def get_current_user(
-    authorization: str = Header(..., description="Format: Bearer <token>"),
+    creds: HTTPAuthorizationCredentials = Depends(security),
     db: Session = Depends(get_db),
 ):
-    # 1) 檢查格式是否為 Bearer
-    parts = authorization.split(" ", 1)
-    if len(parts) != 2 or parts[0].lower() != "bearer":
-        raise HTTPException(status_code=401, detail="Missing or invalid Authorization header")
-
-    token = parts[1]
-
+    token = creds.credentials
+    payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
     try:
-        # 2) 解碼 + 自動驗證 exp
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         sub = payload.get("sub")
         if sub is None:
             raise HTTPException(status_code=401, detail="Invalid token payload")
-
-        # 有些人把 sub 存成字串，這裡保險一點做轉型
-        try:
-            user_id = int(sub)
-        except (TypeError, ValueError):
-            raise HTTPException(status_code=401, detail="Invalid token subject")
-
-        # 3) 查 DB
-        user = db.query(models.User).filter(models.User.id == user_id).first()
+        user = db.query(models.User).filter(models.User.id == int(sub)).first()
         if not user:
             raise HTTPException(status_code=401, detail="User not found")
-
         return user
-
     except ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Token expired")
     except JWTError:
@@ -84,5 +75,5 @@ def login(user: schemas.UserCreate, db: Session = Depends(get_db)):
     db_user = db.query(models.User).filter_by(username=user.username).first()
     if not db_user or not verify_password(user.password, db_user.password_hash):
         raise HTTPException(status_code=401, detail="Invalid credentials")
-    token = create_token({"sub": db_user.id})
+    token = create_token({"sub": str(db_user.id)})
     return {"access_token": token, "token_type": "bearer"}
